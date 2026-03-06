@@ -2,7 +2,6 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from ml.predict import predict_inverter
 from genai.explanation_engine import generate_maintenance_ticket
-from utils.ticket_generator import generate_ticket
 
 app = FastAPI(title="Solar Inverter AI API")
 
@@ -213,13 +212,11 @@ def predict(data: dict):
     ml_result = predict_inverter(data)
     # Step 2: LLM explanation
     explanation = generate_maintenance_ticket(ml_result)
-    # Step 3: Maintenance ticket
-    ticket = generate_ticket(ml_result)
 
     return {
         "inverter_id": ml_result["inverter_id"],
         "risk_score": ml_result["risk_score"],
         "status": ml_result["status"],
         "explanation": explanation,
-        "maintenance_ticket": ticket,
+        "maintenance_ticket": explanation,
     }
