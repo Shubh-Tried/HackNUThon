@@ -1,0 +1,185 @@
+"""
+Supabase client helper using httpx + PostgREST.
+
+Thin wrapper around the Supabase REST API.  Avoids the heavy `supabase` pip
+package (which requires Visual C++ Build Tools on Windows).
+
+Tables supported:
+  - plants
+  - inverters
+  - inverter_latest_data
+  - inverter_metrics
+  - string_metrics
+
+Environment variables (loaded from backend/.env):
+  - SUPABASE_URL   e.g. https://abc123.supabase.co
+  - SUPABASE_KEY   anon or service-role key
+"""
+
+import os
+import time
+import threading
+import logging
+from dotenv import load_dotenv
+import httpx
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+load_dotenv(_env_path)
+
+SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY: str = os.environ.get("SUPABASE_KEY", "")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError(
+        "SUPABASE_URL and SUPABASE_KEY must be set in backend/.env. "
+        "Copy .env.example to .env and fill in your credentials."
+    )
+
+REST_URL = f"{SUPABASE_URL}/rest/v1"
+
+HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=representation",
+}
+
+_client = httpx.Client(base_url=REST_URL, headers=HEADERS, timeout=15.0)
+
+# ---------------------------------------------------------------------------
+# Generic helpers
+# ---------------------------------------------------------------------------
+
+def fetch_all(table: str, params: dict | None = None) -> list[dict]:
+    """SELECT * from a Supabase table.  Optional PostgREST query params."""
+    resp = _client.get(f"/{table}", params=params or {})
+    resp.raise_for_status()
+    return resp.json()
+
+
+def fetch_one(table: str, column: str, value) -> dict | None:
+    """SELECT * … WHERE column = value  → first row or None."""
+    params = {column: f"eq.{value}", "limit": "1"}
+    resp = _client.get(f"/{table}", params=params)
+    resp.raise_for_status()
+    rows = resp.json()
+    return rows[0] if rows else None
+
+
+def upsert(table: str, rows: list[dict]) -> list[dict]:
+    """INSERT … ON CONFLICT UPDATE (upsert) rows into a table."""
+    headers = {**HEADERS, "Prefer": "resolution=merge-duplicates,return=representation"}
+    resp = _client.post(f"/{table}", json=rows, headers=headers)
+    resp.raise_for_status()
+    return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Domain-specific helpers  (real schema)
+# ---------------------------------------------------------------------------
+
+def fetch_plants() -> list[dict]:
+    """All rows from the `plants` table."""
+    return fetch_all("plants", {"order": "plant_id.asc"})
+
+
+def fetch_inverters() -> list[dict]:
+    """All inverter registrations (joined with nothing — raw table)."""
+    return fetch_all("inverters", {"order": "inverter_id.asc"})
+
+
+def fetch_latest_data() -> list[dict]:
+    """Most recent snapshot of every inverter from `inverter_latest_data`."""
+    return fetch_all("inverter_latest_data", {"order": "inverter_code.asc"})
+
+
+def fetch_metrics(inverter_id: int, limit: int = 100) -> list[dict]:
+    """Recent time-series rows from `inverter_metrics` for one inverter."""
+    params = {
+        "inverter_id": f"eq.{inverter_id}",
+        "order": "timestamp.desc",
+        "limit": str(limit),
+    }
+    return fetch_all("inverter_metrics", params)
+
+
+def fetch_string_metrics(inverter_id: int, limit: int = 50) -> list[dict]:
+    """Recent string-level current readings for one inverter."""
+    params = {
+        "inverter_id": f"eq.{inverter_id}",
+        "order": "timestamp.desc",
+        "limit": str(limit),
+    }
+    return fetch_all("string_metrics", params)
+
+
+# ---------------------------------------------------------------------------
+# In-memory cache  (refreshed every 5 minutes by background thread)
+# ---------------------------------------------------------------------------
+_cache: dict = {
+    "latest_data": [],
+    "plants": [],
+    "inverters": [],
+    "last_refresh": 0.0,
+}
+_cache_lock = threading.Lock()
+
+REFRESH_INTERVAL = 300  # seconds (5 minutes)
+
+
+def _refresh_cache():
+    """Pull fresh data from Supabase and store in the module cache."""
+    try:
+        latest = fetch_latest_data()
+        plants = fetch_plants()
+        inverters = fetch_inverters()
+        with _cache_lock:
+            _cache["latest_data"] = latest
+            _cache["plants"] = plants
+            _cache["inverters"] = inverters
+            _cache["last_refresh"] = time.time()
+        log.info("Cache refreshed — %d latest rows, %d plants, %d inverters",
+                 len(latest), len(plants), len(inverters))
+    except Exception as exc:
+        log.error("Cache refresh failed: %s", exc)
+
+
+def _background_loop():
+    """Daemon thread that refreshes the cache every REFRESH_INTERVAL seconds."""
+    while True:
+        _refresh_cache()
+        time.sleep(REFRESH_INTERVAL)
+
+
+# Start the daemon on import
+_thread = threading.Thread(target=_background_loop, daemon=True, name="supabase-cache")
+_thread.start()
+
+
+def get_cached_latest() -> list[dict]:
+    """Return the cached latest-data snapshot (fast, no network call)."""
+    with _cache_lock:
+        return list(_cache["latest_data"])
+
+
+def get_cached_plants() -> list[dict]:
+    with _cache_lock:
+        return list(_cache["plants"])
+
+
+def get_cached_inverters() -> list[dict]:
+    with _cache_lock:
+        return list(_cache["inverters"])
+
+
+def get_cache_age() -> float:
+    """Seconds since last successful refresh."""
+    with _cache_lock:
+        if _cache["last_refresh"] == 0:
+            return float("inf")
+        return time.time() - _cache["last_refresh"]
