@@ -23,8 +23,8 @@ function About() {
         The system is designed to help monitor plant performance and detect
         grid issues quickly using visual status indicators.
       </p>
-      <br/><br/><br/><br/><br/><br/><br/><br/><br/><br/><br/>Hello<br/><br/>
-      <br/><br/><br/><br/><br/><br/><br/><br/><br/><br/><br/><br/><br/><br/><br/>
+      <br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br />Hello<br /><br />
+      <br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br />
 
     </div>
 

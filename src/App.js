@@ -6,7 +6,7 @@ function App() {
 
   return (
 
-    <div>
+    <div style={{backgroundColor:"#F5F7FB"}}>
       <Navbar/>
 
       <section id="home">
