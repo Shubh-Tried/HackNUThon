@@ -1,0 +1,118 @@
+.about-section {
+  padding: 60px 50px;
+  background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+}
+
+.about-header {
+  text-align: center;
+  margin-bottom: 50px;
+}
+
+.about-title {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin: 0 0 14px 0;
+}
+
+.about-subtitle {
+  font-size: 1.1rem;
+  color: #555;
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.about-features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  max-width: 960px;
+  margin: 0 auto 50px auto;
+}
+
+.about-feature-card {
+  background: white;
+  border-radius: 14px;
+  padding: 28px 24px;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.about-feature-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 8px 28px rgba(0, 123, 255, 0.12);
+}
+
+.about-feature-icon {
+  font-size: 2.4rem;
+  margin-bottom: 14px;
+}
+
+.about-feature-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1a1a2e;
+  margin: 0 0 8px 0;
+}
+
+.about-feature-desc {
+  font-size: 0.9rem;
+  color: #666;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Tech Stack Strip */
+.about-tech-strip {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.about-tech-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: white;
+  padding: 16px 28px;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  min-width: 140px;
+}
+
+.tech-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #007bff;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.tech-value {
+  font-size: 0.95rem;
+  color: #333;
+  font-weight: 500;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .about-features-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .about-section {
+    padding: 40px 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .about-features-grid {
+    grid-template-columns: 1fr;
+  }
+}
