@@ -37,24 +37,8 @@ function Home() {
         const plantsRes = await fetch(`${API_BASE}/plants`);
         let plantsData = await plantsRes.json();
 
-        if (!Array.isArray(plantsData) || plantsData.length === 0) {
-          // Fallback dummy plant if backend has none
-          plantsData = [
-            { plant_id: 1, name: "Alpha Solar Plant" },
-            { plant_id: 2, name: "Beta Solar Plant" }
-          ];
-        }
-
-        if (!Array.isArray(invData) || invData.length === 0) {
-          // Fallback dummy inverters if backend has none (because of dummy Supabase connection)
-          invData = [
-            { id: 101, inverter_code: "INV-Alpha-01", plant_id: 1, power: 50.2, temperature: 45, risk_score: 0.1 },
-            { id: 102, inverter_code: "INV-Alpha-02", plant_id: 1, power: 48.1, temperature: 48, risk_score: 0.45 },
-            { id: 103, inverter_code: "INV-Alpha-03", plant_id: 1, power: 12.0, temperature: 75, risk_score: 0.8 },
-            { id: 201, inverter_code: "INV-Beta-01", plant_id: 2, power: 65.5, temperature: 40, risk_score: 0.05 },
-            { id: 202, inverter_code: "INV-Beta-02", plant_id: 2, power: 60.2, temperature: 42, risk_score: 0.15 },
-          ];
-        }
+        if (!Array.isArray(plantsData)) plantsData = [];
+        if (!Array.isArray(invData)) invData = [];
 
         // Fetch predictions to determine risk scores
         const predictions = await Promise.all(
@@ -110,15 +94,7 @@ function Home() {
         }
 
         try {
-          // Fallback dummy 7 day data
-          const dummyMetrics = Array.from({ length: 7 }).map((_, i) => ({
-            timestamp: new Date(Date.now() - (6 - i) * 86400000).toISOString().split('T')[0],
-            voltage_ab: 220 + Math.random() * 20,
-            temperature: 30 + Math.random() * 20,
-            power: 40 + Math.random() * 20
-          }));
-
-          let data = dummyMetrics;
+          let data = [];
           try {
             const res = await fetch(`${API_BASE}/inverter/${selected.id}/metrics?limit=7`);
             if (res.ok) {

@@ -1,15 +1,70 @@
 """
 rag/rag_engine.py — RAG-powered question answering engine.
 
-Loads inverter datasets at import time (once), builds the retriever index,
-and provides rag_answer() to answer questions using retrieved context + Groq (LLaMA).
+Loads inverter data from Supabase, builds a TF-IDF retriever index, and
+auto-refreshes every time the Supabase cache updates (every 5 minutes).
+
+Provides rag_answer() to answer questions using retrieved context + Groq (LLaMA).
 """
 
 import os
+import threading
+import logging
 from dotenv import load_dotenv
 
 from rag.ingest import load_documents
 from rag.retriever import Retriever
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# RAG Engine — auto-refreshing
+# ---------------------------------------------------------------------------
+
+class RAGEngine:
+    """Holds the document index and retriever, supports live refresh."""
+
+    def __init__(self):
+        self._documents: list[str] = []
+        self._retriever = Retriever()
+        self._summary_doc: str | None = None
+        self._lock = threading.Lock()
+
+    def refresh(self):
+        """Reload documents from Supabase and rebuild the TF-IDF index."""
+        try:
+            docs = load_documents()
+            retriever = Retriever()
+            retriever.build_index(docs)
+
+            summary = next(
+                (d for d in docs if d.startswith("DATASET SUMMARY:")), None
+            )
+
+            with self._lock:
+                self._documents = docs
+                self._retriever = retriever
+                self._summary_doc = summary
+
+            log.info("RAG index refreshed — %d documents indexed.", len(docs))
+            print(f"[RAG engine] RAG index refreshed — {len(docs)} documents indexed.")
+        except Exception as exc:
+            log.error("RAG refresh failed: %s", exc)
+            print(f"[RAG engine] WARNING: RAG refresh failed: {exc}")
+
+    @property
+    def documents(self) -> list[str]:
+        with self._lock:
+            return list(self._documents)
+
+    @property
+    def summary_doc(self) -> str | None:
+        with self._lock:
+            return self._summary_doc
+
+    def search(self, query: str, k: int = 10) -> list[str]:
+        with self._lock:
+            return self._retriever.search(query, k=k)
 
 
 # ---------------------------------------------------------------------------
@@ -17,14 +72,16 @@ from rag.retriever import Retriever
 # ---------------------------------------------------------------------------
 load_dotenv()
 
-print("[RAG engine] Loading documents from datasets...")
-_documents = load_documents()
+print("[RAG engine] Loading documents from Supabase...")
+_engine = RAGEngine()
+_engine.refresh()
 
-print("[RAG engine] Building retriever index...")
-_retriever = Retriever()
-_retriever.build_index(_documents)
+# Register for automatic refresh when Supabase cache updates
+from database.supabase_client import on_cache_refresh
+on_cache_refresh(_engine.refresh)
 
-print(f"[RAG engine] Ready — {len(_documents)} documents indexed.")
+print(f"[RAG engine] Ready — {len(_engine.documents)} documents indexed. "
+      f"Auto-refresh enabled (synced with Supabase cache).")
 
 
 # ---------------------------------------------------------------------------
@@ -45,14 +102,6 @@ except Exception as e:
     print(f"[RAG engine] WARNING: Failed to configure Groq: {e}")
 
 
-# Find the overall summary document (starts with "DATASET SUMMARY:")
-_summary_doc = None
-for doc in _documents:
-    if doc.startswith("DATASET SUMMARY:"):
-        _summary_doc = doc
-        break
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -67,26 +116,29 @@ def rag_answer(question: str) -> str:
     Returns:
         Answer string from Groq, grounded in the retrieved context.
     """
-    if not _documents:
-        return "No inverter data available. Please add CSV files to the datasets/ folder."
+    documents = _engine.documents
+
+    if not documents:
+        return "No inverter data available. Please check the Supabase connection."
 
     # Step 1: Retrieve relevant documents
-    context_docs = _retriever.search(question, k=10)
+    context_docs = _engine.search(question, k=10)
 
     if not context_docs:
         # Fallback: provide a sample of all documents so Groq has some context
-        context_docs = _documents[:10]
+        context_docs = documents[:10]
 
     # Always include the overall summary so Groq knows totals/counts
-    if _summary_doc and _summary_doc not in context_docs:
-        context_docs.insert(0, _summary_doc)
+    summary = _engine.summary_doc
+    if summary and summary not in context_docs:
+        context_docs.insert(0, summary)
 
     context_text = "\n".join(f"- {doc}" for doc in context_docs)
 
     # Step 2: Build messages for Groq's Chat API
     system_prompt = (
         "You are a solar energy expert AI assistant. Answer the user's question using ONLY the inverter data provided below.\n\n"
-        "INVERTER DATA (retrieved from datasets):\n"
+        "INVERTER DATA (live from Supabase database):\n"
         f"{context_text}\n\n"
         "RULES:\n"
         "- Answer using ONLY the provided data above.\n"
@@ -114,4 +166,3 @@ def rag_answer(question: str) -> str:
         return response.choices[0].message.content
     except Exception as e:
         return f"AI response temporarily unavailable. Error: {str(e)}"
-

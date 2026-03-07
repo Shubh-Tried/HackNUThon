@@ -2,6 +2,9 @@ fastapi
 uvicorn[standard]
 httpx
 python-dotenv
-google-generativeai
+groq
 joblib
 numpy
+pandas
+scikit-learn
+xgboost

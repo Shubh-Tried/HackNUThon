@@ -15,3 +15,63 @@ code {
 html {
   scroll-behavior: smooth;
 }
+
+/* Floating AI Chatbot Button */
+.floating-ai-btn {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #007bff, #0056b3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 999;
+  box-shadow: 0 4px 20px rgba(0, 123, 255, 0.4);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.floating-ai-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 28px rgba(0, 123, 255, 0.55);
+}
+
+.floating-ai-btn:active {
+  transform: scale(0.95);
+}
+
+.ai-btn-icon {
+  font-size: 1.7rem;
+  line-height: 1;
+  z-index: 2;
+}
+
+.ai-btn-pulse {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(0, 123, 255, 0.3);
+  animation: aiBtnPulse 2s ease-in-out infinite;
+  z-index: 1;
+}
+
+@keyframes aiBtnPulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+
+  50% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}

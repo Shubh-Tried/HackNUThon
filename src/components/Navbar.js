@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import "./Navbar.css";
+import NotificationBell from "./NotificationBell";
 
-function Navbar({ onOpenChatbot }) {
+function Navbar() {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [show, setShow] = useState(true);
   const [lastScroll, setLastScroll] = useState(0);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -25,6 +28,23 @@ function Navbar({ onOpenChatbot }) {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [lastScroll]);
 
+  const handleAboutClick = (e) => {
+    e.preventDefault();
+    if (location.pathname === "/") {
+      // Already on home page, just scroll to #about
+      const el = document.getElementById("about");
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+    } else {
+      // Navigate to home page then scroll to about
+      navigate("/");
+      setTimeout(() => {
+        const el = document.getElementById("about");
+        if (el) el.scrollIntoView({ behavior: "smooth" });
+      }, 300);
+    }
+    setMenuOpen(false);
+  };
+
   return (
     <nav className={`navbar ${show ? "show" : "hide"}`}>
       <div className="nav-container">
@@ -42,13 +62,10 @@ function Navbar({ onOpenChatbot }) {
         </div>
 
         <ul className={`nav-links ${menuOpen ? "open" : ""}`}>
-          <li><Link to="/">Home</Link></li>
-          <li><a href="#about">About</a></li>
-          <li>
-            <button className="nav-service-btn" onClick={onOpenChatbot}>
-              Services
-            </button>
-          </li>
+          <li><Link to="/" onClick={() => setMenuOpen(false)}>Home</Link></li>
+          <li><Link to="/inverters" onClick={() => setMenuOpen(false)}>Inverters</Link></li>
+          <li><a href="#about" onClick={handleAboutClick}>About</a></li>
+          <li><NotificationBell /></li>
         </ul>
       </div>
     </nav>

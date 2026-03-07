@@ -131,6 +131,18 @@ _cache_lock = threading.Lock()
 
 REFRESH_INTERVAL = 300  # seconds (5 minutes)
 
+# Callbacks invoked after every successful cache refresh
+_refresh_callbacks: list = []
+
+
+def on_cache_refresh(callback):
+    """Register a callback to be called after each successful cache refresh.
+
+    Use this to keep downstream indices (e.g. the RAG engine) in sync
+    with the latest Supabase data automatically.
+    """
+    _refresh_callbacks.append(callback)
+
 
 def _refresh_cache():
     """Pull fresh data from Supabase and store in the module cache."""
@@ -145,6 +157,14 @@ def _refresh_cache():
             _cache["last_refresh"] = time.time()
         log.info("Cache refreshed — %d latest rows, %d plants, %d inverters",
                  len(latest), len(plants), len(inverters))
+
+        # Notify registered listeners (e.g. RAG engine)
+        for cb in _refresh_callbacks:
+            try:
+                cb()
+            except Exception as cb_exc:
+                log.error("Refresh callback %s failed: %s", cb.__name__, cb_exc)
+
     except Exception as exc:
         log.error("Cache refresh failed: %s", exc)
 
