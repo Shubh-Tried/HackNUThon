@@ -48,25 +48,6 @@ def home():
         "cache_age_seconds": round(get_cache_age(), 1),
     }
 
-@app.post("/refresh-data")
-def trigger_manual_refresh():
-    """Manually fetch latest data from DB and run ML prediction, advancing simulation time."""
-    from database.supabase_client import _refresh_cache, advance_simulation, _cache, _cache_lock
-    from ml.predict import run_batch_predictions_and_log
-    
-    # 1. Advance simulation and fetch from DB
-    advance_simulation()
-    _refresh_cache()
-    
-    # 2. Run ML predictions logging
-    with _cache_lock:
-        latest = list(_cache.get("latest_data", []))
-    
-    if latest:
-        run_batch_predictions_and_log(latest)
-        
-    return {"message": "Simulation advanced and ML predictions stored", "inverters_processed": len(latest)}
-
 
 @app.get("/plants")
 def get_plants():
@@ -172,26 +153,16 @@ def get_dashboard_stats():
     # Use real historical data for the weekly power chart
     from database.supabase_client import fetch_all
     try:
-        # Filter metric_query by the current simulation time as well!
-        from database.supabase_client import SIMULATION_TIMESTAMPS, SIMULATION_INDEX
-        current_sim_time = None
-        params = {"order": "timestamp.desc", "limit": "5000"}
-        if SIMULATION_TIMESTAMPS:
-            current_sim_time = SIMULATION_TIMESTAMPS[SIMULATION_INDEX]
-            params["timestamp"] = f"lte.{current_sim_time}"
-
         # Fetch up to 5000 recent metrics to cover the past few days across all inverters
-        metric_query = fetch_all("inverter_latest_data", params)
+        metric_query = fetch_all("inverter_latest_data", {"order": "timestamp.desc", "limit": "5000"})
         daily_kwh = {}
-            
+        
         for r in metric_query:
-            ts_val = r.get("timestamp")
-            if not ts_val: continue
-            
+            if not r.get("timestamp"): continue
             # Handle possible 'Z' at the end of ISO format
-            ts_str = ts_val.replace('Z', '+00:00')
+            ts = r["timestamp"].replace('Z', '+00:00')
             try:
-                dt = datetime.datetime.fromisoformat(ts_str)
+                dt = datetime.datetime.fromisoformat(ts)
             except ValueError:
                 continue
                 
@@ -207,35 +178,25 @@ def get_dashboard_stats():
             if inv_id not in daily_kwh[day_str] or kwh > daily_kwh[day_str][inv_id]:
                 daily_kwh[day_str][inv_id] = kwh
                 
-        # Always build a full 7-day window ending at the simulation time
-        if current_sim_time:
-            try:
-                end_dt = datetime.datetime.fromisoformat(current_sim_time.replace('Z', '+00:00')).replace(tzinfo=None)
-            except:
-                end_dt = datetime.datetime.utcnow()
-        else:
-            end_dt = datetime.datetime.utcnow()
-
-        for i in range(6, -1, -1):
-            day = end_dt.date() - datetime.timedelta(days=i)
-            day_str = day.strftime("%Y-%m-%d")
-            label = day.strftime("%a, %b %d")
-            if day_str in daily_kwh:
-                total_kwh = sum(daily_kwh[day_str].values())
-            else:
-                total_kwh = 0.0
+        # Sort days chronologically
+        sorted_days = sorted(daily_kwh.keys())
+        
+        # Take the last 7 available days
+        for day_str in sorted_days[-7:]:
+            dt = datetime.datetime.strptime(day_str, "%Y-%m-%d")
+            label = dt.strftime("%a, %b %d")
+            total_kwh = sum(daily_kwh[day_str].values())
             weekly_power.append({"label": label, "value": round(total_kwh, 1)})
             
     except Exception as e:
         print(f"Error computing weekly power dynamically: {e}")
-        import traceback
-        traceback.print_exc()
-        # Fallback: generate 7 empty days
+        # Fallback to static if the dynamic calculation fails
         today = datetime.date.today()
         for i in range(6, -1, -1):
             day = today - datetime.timedelta(days=i)
             label = day.strftime("%a, %b %d")
-            weekly_power.append({"label": label, "value": 0.0})
+            # For fallback, sum kwh_today across unique inverters
+            total_kwh = sum(float(inv.get("kwh_today", 0) or 0) for inv in unique_inverters)
     return {
         "health": health,
         "shutdown_risk": shutdown_risk,

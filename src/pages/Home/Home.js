@@ -195,28 +195,9 @@ function Home() {
   const atRisk = uniqueOverall.filter((i) => i.gridStatus !== "Normal").length;
   const totalPower = uniqueOverall.reduce((acc, inv) => acc + (inv.power || 0), 0);
 
-  const handleFetchNextData = async () => {
-    try {
-      alert("Fetching next data and running ML models. Please wait...");
-      const res = await fetch(`${API_BASE}/refresh-data`, { method: "POST" });
-      if (res.ok) {
-        window.location.reload();
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Failed to fetch fresh data");
-    }
-  };
-
   return (
     <div className="home">
       <GraphsSection />
-
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 40px" }}>
-        <button onClick={handleFetchNextData} style={{ padding: "12px 24px", background: "#ff8c00", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "bold", fontSize: "16px", boxShadow: "0 4px 6px rgba(0,0,0,0.1)" }}>
-          Fetch Next Data (ML Refresh)
-        </button>
-      </div>
 
       {/* Summary Dashboard */}
       <div className="summary-dashboard">

@@ -76,34 +76,13 @@ def upsert(table: str, rows: list[dict]) -> list[dict]:
     headers = {**HEADERS, "Prefer": "resolution=merge-duplicates,return=representation"}
     resp = _client.post(f"/{table}", json=rows, headers=headers)
     resp.raise_for_status()
-SIMULATION_TIMESTAMPS = []
-SIMULATION_INDEX = 0
+    return resp.json()
 
-def init_simulation():
-    global SIMULATION_TIMESTAMPS, SIMULATION_INDEX
-    rows = fetch_all("inverter_latest_data", {"select": "timestamp", "order": "timestamp.asc", "limit": "10000"})
-    unique = sorted(list(set(r["timestamp"] for r in rows if r.get("timestamp"))))
-    SIMULATION_TIMESTAMPS = unique
-    SIMULATION_INDEX = 0
-
-def advance_simulation():
-    global SIMULATION_TIMESTAMPS, SIMULATION_INDEX
-    if SIMULATION_TIMESTAMPS and SIMULATION_INDEX < len(SIMULATION_TIMESTAMPS) - 1:
-        SIMULATION_INDEX += 1
 
 def delete_old_records(table: str, days: int = 7) -> None:
-    """DELETE records older than `days` relative to simulation time."""
+    """DELETE records older than `days` from the specified table."""
     from datetime import datetime, timedelta
-    global SIMULATION_TIMESTAMPS, SIMULATION_INDEX
-    if not SIMULATION_TIMESTAMPS: return
-    
-    current_time_str = SIMULATION_TIMESTAMPS[SIMULATION_INDEX].replace('Z', '+00:00')
-    try:
-        current_time = datetime.fromisoformat(current_time_str).replace(tzinfo=None)
-    except:
-        current_time = datetime.utcnow()
-        
-    cutoff = current_time - timedelta(days=days)
+    cutoff = datetime.utcnow() - timedelta(days=days)
     cutoff_iso = cutoff.isoformat()
     
     # Using PostgREST lt (less than) operator
@@ -111,7 +90,7 @@ def delete_old_records(table: str, days: int = 7) -> None:
     try:
         resp = _client.delete(f"/{table}", params=params)
         resp.raise_for_status()
-        log.info(f"Deleted records older than {days} days relative to sim time from {table}")
+        log.info(f"Deleted records older than {days} days from {table}")
     except Exception as exc:
         log.error(f"Failed to delete old records from {table}: {exc}")
 
@@ -131,78 +110,13 @@ def fetch_inverters() -> list[dict]:
 
 
 def fetch_latest_data() -> list[dict]:
-    """Most recent snapshot of every inverter up to current simulation time."""
-    global SIMULATION_TIMESTAMPS, SIMULATION_INDEX
-    if not SIMULATION_TIMESTAMPS:
-        init_simulation()
-        
-    if not SIMULATION_TIMESTAMPS:
-        return []
-        
-    cutoff_time = SIMULATION_TIMESTAMPS[SIMULATION_INDEX]
-    rows = fetch_all("inverter_latest_data", {
-        "timestamp": f"lte.{cutoff_time}",
-        "order": "timestamp.desc",
-        "limit": "15000"
-    })
-    
-    from ml.predict import predict_inverter
+    """Most recent snapshot of every inverter from `inverter_latest_data`."""
+    rows = fetch_all("inverter_latest_data", {"order": "timestamp.desc", "limit": "5000"})
     unique = {}
     for r in rows:
         code = r.get("inverter_code")
         if code and code not in unique:
-            # Inline the ML prediction calculation exactly as requested
-            try:
-                res = predict_inverter({
-                    "inverter_id": r.get("id"),
-                    "power": r.get("power", 0),
-                    "pv_power": r.get("pv_power", 0),
-                    "temperature": r.get("temperature", 0),
-                    "frequency": r.get("frequency", 50.0),
-                    "voltage_ab": r.get("voltage_ab", 230),
-                    "voltage_bc": r.get("voltage_bc", 230),
-                    "voltage_ca": r.get("voltage_ca", 230),
-                    "power_factor": r.get("power_factor", 1.0),
-                    "op_state": r.get("op_state", 1),
-                })
-                r["risk_score"] = res["risk_score"]
-                r["status"] = res["status"]
-            except:
-                r["risk_score"] = 0.5
-                r["status"] = "Unknown"
             unique[code] = r
-
-    # Ensure all baseline inverters are present
-    all_invs = fetch_all("inverters")
-    for inv in all_invs:
-        code = inv.get("inverter_code")
-        if code and code not in unique:
-            blank = {
-                "id": inv.get("inverter_id", 0),
-                "inverter_code": code,
-                "plant_id": inv.get("plant_id", 1),
-                "timestamp": cutoff_time,
-                "power": 0.0,
-                "pv_power": 0.0,
-                "temperature": 25.0,
-                "frequency": 50.0,
-                "voltage_ab": 230.0,
-                "voltage_bc": 230.0,
-                "voltage_ca": 230.0,
-                "power_factor": 1.0,
-                "op_state": 0,
-                "kwh_today": 0.0,
-                "kwh_total": 0.0
-            }
-            try:
-                res = predict_inverter(blank)
-                blank["risk_score"] = res["risk_score"]
-                blank["status"] = res["status"]
-            except:
-                blank["risk_score"] = 0.5
-                blank["status"] = "Unknown"
-            unique[code] = blank
-            
     return sorted(unique.values(), key=lambda x: x.get("inverter_code", ""))
 
 
@@ -213,11 +127,6 @@ def fetch_metrics(inverter_code: str, limit: int = 100) -> list[dict]:
         "order": "timestamp.desc",
         "limit": str(limit),
     }
-    global SIMULATION_TIMESTAMPS, SIMULATION_INDEX
-    if SIMULATION_TIMESTAMPS:
-        cutoff = SIMULATION_TIMESTAMPS[SIMULATION_INDEX]
-        params["timestamp"] = f"lte.{cutoff}"
-        
     return fetch_all("inverter_latest_data", params)
 
 
@@ -228,11 +137,6 @@ def fetch_string_metrics(inverter_id: int, limit: int = 50) -> list[dict]:
         "order": "timestamp.desc",
         "limit": str(limit),
     }
-    global SIMULATION_TIMESTAMPS, SIMULATION_INDEX
-    if SIMULATION_TIMESTAMPS:
-        cutoff = SIMULATION_TIMESTAMPS[SIMULATION_INDEX]
-        params["timestamp"] = f"lte.{cutoff}"
-        
     return fetch_all("string_metrics", params)
 
 
@@ -291,7 +195,6 @@ def _background_loop():
     """Daemon thread that refreshes the cache every REFRESH_INTERVAL seconds."""
     from ml.predict import run_batch_predictions_and_log
     while True:
-        advance_simulation()
         _refresh_cache()
         
         # ML Training / Prediction Logging
@@ -300,7 +203,7 @@ def _background_loop():
         if latest:
             run_batch_predictions_and_log(latest)
             
-        # Delete old data relative to simulation time
+        # Delete old data (older than 7 days)
         delete_old_records("inverter_latest_data", days=7)
         
         time.sleep(REFRESH_INTERVAL)
