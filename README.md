@@ -1,71 +1,64 @@
-# Getting Started with Create React App
+# AI-Driven Solar Inverter Failure Prediction & Intelligence Platform
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A production-ready platform for predicting solar inverter shutdowns or underperformance using Machine Learning and providing operational insights via Generative AI.
 
-## Available Scripts
+## 🚀 Key Features
 
-In the project directory, you can run:
+-   **Predictive Maintenance:** ML models (SCIKIT-LEARN) predict potential failures 7-10 days in advance.
+-   **GenAI Insights:** Integrated AI engine (Gemini) provides natural language maintenance recommendations.
+-   **Real-time Dashboard:** Operational dashboard showing live telemetry across multiple plants.
+-   **Historical Analysis:** 7-day visualization of voltage, temperature, and power trends.
+-   **AI Chatbot:** A non-blocking floating widget for querying plant data using RAG (Retrieval-Augmented Generation).
 
-### `npm start`
+## 🛠 Tech Stack
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+-   **Frontend:** React, Chart.js, Vanilla CSS.
+-   **Backend:** FastAPI (Python), Uvicorn.
+-   **Database:** Supabase (PostgreSQL + REST API).
+-   **AI/ML:** Scikit-learn, Google Gemini API, RAG Engine.
+-   **DevOps:** Docker, Docker Compose.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## 📂 Project Structure
 
-### `npm test`
+-   `/src`: React frontend components and pages.
+-   `/backend`: FastAPI application logic.
+    -   `/api`: REST endpoints.
+    -   `/ml`: Machine learning prediction logic.
+    -   `/genai`: LLM integration for maintenance insights.
+    -   `/database`: Supabase client and caching.
+    -   `/rag`: Retrieval-Augmented Generation engine.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## 🏁 Getting Started
 
-### `npm run build`
+### 1. Environment Setup
+Create a `.env` file in the `backend/` directory based on `.env.example`:
+```env
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
+GEMINI_API_KEY=your_gemini_api_key
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### 2. Running with Docker (Recommended)
+```bash
+docker-compose up --build
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### 3. Running Manually
+**Backend:**
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn api.main:app --reload
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+**Frontend:**
+```bash
+npm install
+npm start
+```
 
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
-# test_com
+## 📊 API Documentation
+Once the backend is running, access the interactive Swagger UI at:
+[http://localhost:8000/docs](http://localhost:8000/docs)
