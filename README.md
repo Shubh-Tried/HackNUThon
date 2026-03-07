@@ -33,9 +33,9 @@ A production-ready platform for predicting solar inverter shutdowns or underperf
 ### 1. Environment Setup
 Create a `.env` file in the `backend/` directory based on `.env.example`:
 ```env
-SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_anon_key
-GEMINI_API_KEY=your_gemini_api_key
+SUPABASE_URL=https://mughjkfscraxllgztswe.supabase.co
+SUPABASE_KEY=sb_publishable_lCGawVQZUMOpiOHuscjlEw_BTYIyahb
+GROK_API_KEY=your_api_key
 ```
 
 ### 2. Running with Docker (Recommended)
