@@ -62,3 +62,13 @@ npm start
 ## 📊 API Documentation
 Once the backend is running, access the interactive Swagger UI at:
 [http://localhost:8000/docs](http://localhost:8000/docs)
+
+## 👥 Team Members
+
+| Name | Phone | Email | College | Graduation Year |
+|------|-------|-------|---------|-----------------|
+| Heer Shah | 7600986367 | heershah3896@gmail.com | Nirma University | 2029 |
+| Saud Topiwala | 7984709245 | 24bce263@nirmauni.ac.in | Nirma University | 2028 |
+| Meer Patel | 9712705203 | 24bam042@nirmauni.ac.in | Nirma University | 2028 |
+| Shrey Patel | 9328396580 | 24BCE250@nirmauni.ac.in | Nirma University | 2028 |
+| Shubh Patel | 9512801279 | 24bam041@nirmauni.ac.in | Nirma University | 2028 |
