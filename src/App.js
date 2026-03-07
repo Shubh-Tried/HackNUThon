@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 
-import Home from "./section/Home/Home.js";
-import About from "./section/About/About.js";
+import Home from "./pages/Home/Home.js";
+import About from "./pages/About/About.js";
 import Navbar from "./components/Navbar.js";
 import Chatbot from "./pages/Chatbot/Chatbot.js";
 import Inverters from "./pages/Inverters/Inverters.js";

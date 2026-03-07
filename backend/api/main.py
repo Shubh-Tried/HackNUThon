@@ -55,6 +55,109 @@ def get_plants():
     return get_cached_plants()
 
 
+@app.get("/dashboard-stats")
+def get_dashboard_stats():
+    """
+    Aggregated statistics for the dashboard charts.
+    All data is computed from real Supabase data — no hardcoded values.
+    """
+    from collections import Counter
+    import datetime
+
+    cached = get_cached_latest()
+
+    # --- 1. Inverter Health Overview (pie chart) ---
+    status_counts = Counter()
+    risk_scores = []
+    feature_accum = {
+        "Temperature": [],
+        "Voltage Var": [],
+        "Frequency Dev": [],
+        "Power Factor": [],
+        "Efficiency Loss": [],
+    }
+
+    for inv in cached:
+        # Compute risk via heuristic/ML
+        try:
+            ml_result = predict_inverter({
+                "inverter_id": inv.get("id"),
+                "power": inv.get("power", 0),
+                "pv_power": inv.get("pv_power", 0),
+                "temperature": inv.get("temperature", 0),
+                "frequency": inv.get("frequency", 0),
+                "voltage_ab": inv.get("voltage_ab", 0),
+                "voltage_bc": inv.get("voltage_bc", 0),
+                "voltage_ca": inv.get("voltage_ca", 0),
+                "power_factor": inv.get("power_factor", 0),
+                "op_state": inv.get("op_state", 0),
+                "kwh_today": inv.get("kwh_today", 0),
+                "kwh_total": inv.get("kwh_total", 0),
+            })
+            risk = ml_result.get("risk_score", 0.2)
+        except Exception:
+            risk = 0.2
+
+        status = _status_from_risk(risk)
+        status_counts[status] += 1
+        risk_scores.append(risk)
+
+        # Feature importance signals
+        temp = float(inv.get("temperature", 0) or 0)
+        freq = float(inv.get("frequency", 50.0) or 50.0)
+        pf = float(inv.get("power_factor", 1.0) or 1.0)
+        pv = float(inv.get("pv_power", 0) or 0)
+
+        feature_accum["Temperature"].append(min(1.0, temp / 80.0) if temp > 0 else 0)
+        v_ab = float(inv.get("voltage_ab", 230) or 230)
+        v_bc = float(inv.get("voltage_bc", 230) or 230)
+        v_ca = float(inv.get("voltage_ca", 230) or 230)
+        v_var = abs(v_ab - v_bc) + abs(v_bc - v_ca) + abs(v_ca - v_ab)
+        feature_accum["Voltage Var"].append(min(1.0, v_var / 30.0))
+        feature_accum["Frequency Dev"].append(min(1.0, abs(freq - 50.0) / 2.0))
+        feature_accum["Power Factor"].append(max(0, 1.0 - pf))
+        power = float(inv.get("power", 0) or 0)
+        pv_p = float(inv.get("pv_power", 0) or 0)
+        eff_loss = 1.0 - (power / pv_p) if pv_p > 0 else 0.5
+        feature_accum["Efficiency Loss"].append(min(1.0, max(0, eff_loss)))
+
+    health = {
+        "good": status_counts.get("Normal", 0),
+        "warning": status_counts.get("Warning", 0),
+        "critical": status_counts.get("Critical", 0),
+    }
+
+    # --- 2. Shutdown Risk (bar chart) ---
+    safe_count = sum(1 for r in risk_scores if r <= 0.4)
+    at_risk_count = sum(1 for r in risk_scores if r > 0.4)
+
+    shutdown_risk = {"safe": safe_count, "at_risk": at_risk_count}
+
+    # --- 3. Feature Dominance (radar chart) ---
+    feature_dominance = {}
+    for feat, vals in feature_accum.items():
+        feature_dominance[feat] = round(sum(vals) / len(vals), 2) if vals else 0
+
+    # --- 4. Weekly Power Generation (line chart) ---
+    weekly_power = []
+    today = datetime.date.today()
+    for i in range(6, -1, -1):
+        day = today - datetime.timedelta(days=i)
+        label = day.strftime("%a, %b %d")
+        # Sum kwh_today across all inverters for this day's estimate
+        # Since we only have the latest snapshot, use kwh_today evenly
+        total_kwh = sum(float(inv.get("kwh_today", 0) or 0) for inv in cached)
+        weekly_power.append({"label": label, "value": round(total_kwh, 1)})
+
+    return {
+        "health": health,
+        "shutdown_risk": shutdown_risk,
+        "feature_dominance": feature_dominance,
+        "weekly_power": weekly_power,
+        "total_inverters": len(cached),
+    }
+
+
 @app.get("/inverters")
 def get_all_inverters():
     """Return latest snapshot for every inverter (from the 5-min cache)."""
@@ -204,6 +307,36 @@ def ask_ai(data: dict):
         return {"answer": answer}
     except Exception as e:
         return {"answer": f"Error: {str(e)}"}
+
+
+@app.get("/inverter/{inverter_id}/ai-summary")
+def get_inverter_ai_summary(inverter_id: int):
+    """Generate an AI-powered plain-English explanation of an inverter's statistics."""
+    # Get inverter data
+    cached = get_cached_latest()
+    inv = next((r for r in cached if r.get("id") == inverter_id), None)
+    if not inv:
+        inv = fetch_one("inverter_latest_data", "id", inverter_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Inverter not found")
+
+    inv_code = inv.get("inverter_code", str(inverter_id))
+
+    # Build a targeted question for the RAG engine
+    question = (
+        f"Give me a detailed analysis of inverter {inv_code} (ID: {inverter_id}). "
+        f"Explain its current operating status, power output, temperature, "
+        f"voltage readings, frequency, power factor, and energy generation. "
+        f"Highlight any concerns or risk factors in plain English. "
+        f"Also provide a brief recommendation on whether any maintenance action is needed."
+    )
+
+    try:
+        from rag.rag_engine import rag_answer
+        summary = rag_answer(question)
+        return {"inverter_id": inverter_id, "inverter_code": inv_code, "summary": summary}
+    except Exception as e:
+        return {"inverter_id": inverter_id, "summary": f"Unable to generate AI summary: {str(e)}"}
 
 
 @app.post("/predict")

@@ -23,6 +23,8 @@ function Inverters() {
     const [detail, setDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
     const [metrics, setMetrics] = useState([]);
+    const [aiSummary, setAiSummary] = useState("");
+    const [aiLoading, setAiLoading] = useState(false);
     const [filterStatus, setFilterStatus] = useState("All");
     const [searchTerm, setSearchTerm] = useState("");
 
@@ -35,22 +37,8 @@ function Inverters() {
                 const plantsRes = await fetch(`${API_BASE}/plants`);
                 let plantsData = await plantsRes.json();
 
-                if (!Array.isArray(plantsData) || plantsData.length === 0) {
-                    plantsData = [
-                        { plant_id: 1, name: "Alpha Solar Plant" },
-                        { plant_id: 2, name: "Beta Solar Plant" }
-                    ];
-                }
-
-                if (!Array.isArray(invData) || invData.length === 0) {
-                    invData = [
-                        { id: 101, inverter_code: "INV-Alpha-01", plant_id: 1, power: 50.2, temperature: 45, risk_score: 0.1, voltage_ab: 232, frequency: 50.1, power_factor: 0.98, kwh_today: 120, kwh_total: 34500, op_state: 1 },
-                        { id: 102, inverter_code: "INV-Alpha-02", plant_id: 1, power: 48.1, temperature: 48, risk_score: 0.45, voltage_ab: 228, frequency: 49.9, power_factor: 0.96, kwh_today: 105, kwh_total: 31200, op_state: 1 },
-                        { id: 103, inverter_code: "INV-Alpha-03", plant_id: 1, power: 12.0, temperature: 75, risk_score: 0.8, voltage_ab: 215, frequency: 49.5, power_factor: 0.89, kwh_today: 42, kwh_total: 28900, op_state: 1 },
-                        { id: 201, inverter_code: "INV-Beta-01", plant_id: 2, power: 65.5, temperature: 40, risk_score: 0.05, voltage_ab: 235, frequency: 50.0, power_factor: 0.99, kwh_today: 145, kwh_total: 41200, op_state: 1 },
-                        { id: 202, inverter_code: "INV-Beta-02", plant_id: 2, power: 60.2, temperature: 42, risk_score: 0.15, voltage_ab: 233, frequency: 50.0, power_factor: 0.97, kwh_today: 138, kwh_total: 39400, op_state: 1 },
-                    ];
-                }
+                if (!Array.isArray(plantsData)) plantsData = [];
+                if (!Array.isArray(invData)) invData = [];
 
                 // Fetch predictions
                 const predictions = await Promise.all(
@@ -99,11 +87,14 @@ function Inverters() {
             setSelectedId(null);
             setDetail(null);
             setMetrics([]);
+            setAiSummary("");
             return;
         }
 
         setSelectedId(inv.id);
         setDetailLoading(true);
+        setAiSummary("");
+        setAiLoading(true);
 
         // Fetch detail
         try {
@@ -118,16 +109,9 @@ function Inverters() {
             setDetail(inv);
         }
 
-        // Fetch 7-day metrics
+        // Fetch 7-day metrics from real data
         try {
-            const dummyMetrics = Array.from({ length: 7 }).map((_, i) => ({
-                timestamp: new Date(Date.now() - (6 - i) * 86400000).toISOString().split("T")[0],
-                voltage_ab: 220 + Math.random() * 20,
-                temperature: 30 + Math.random() * 20,
-                power: 40 + Math.random() * 20,
-            }));
-
-            let data = dummyMetrics;
+            let data = [];
             try {
                 const res = await fetch(`${API_BASE}/inverter/${inv.id}/metrics?limit=7`);
                 if (res.ok) {
@@ -140,6 +124,20 @@ function Inverters() {
         } catch { }
 
         setDetailLoading(false);
+
+        // Fetch AI summary (non-blocking, loads after detail)
+        try {
+            const aiRes = await fetch(`${API_BASE}/inverter/${inv.id}/ai-summary`);
+            if (aiRes.ok) {
+                const aiData = await aiRes.json();
+                setAiSummary(aiData.summary || "No summary available.");
+            } else {
+                setAiSummary("Unable to generate AI analysis at this time.");
+            }
+        } catch {
+            setAiSummary("Unable to connect to AI service.");
+        }
+        setAiLoading(false);
     };
 
     const getStatusColor = (status) => {
@@ -360,6 +358,28 @@ function Inverters() {
                                                                 {(inv.risk_score * 100).toFixed(1)}%
                                                             </span>
                                                         </div>
+                                                    </div>
+
+                                                    {/* AI Explanation */}
+                                                    <div className="inv-ai-summary">
+                                                        <div className="inv-ai-header">
+                                                            <span className="inv-ai-icon">🤖</span>
+                                                            <h3>AI Analysis</h3>
+                                                        </div>
+                                                        {aiLoading ? (
+                                                            <div className="inv-ai-loading">
+                                                                <div className="inv-ai-loading-dots">
+                                                                    <span></span><span></span><span></span>
+                                                                </div>
+                                                                <p>Analyzing inverter data...</p>
+                                                            </div>
+                                                        ) : aiSummary ? (
+                                                            <div className="inv-ai-content">
+                                                                {aiSummary.split('\n').map((line, i) => (
+                                                                    <p key={i}>{line}</p>
+                                                                ))}
+                                                            </div>
+                                                        ) : null}
                                                     </div>
 
                                                     {/* Mini Charts */}
