@@ -79,6 +79,22 @@ def upsert(table: str, rows: list[dict]) -> list[dict]:
     return resp.json()
 
 
+def delete_old_records(table: str, days: int = 7) -> None:
+    """DELETE records older than `days` from the specified table."""
+    from datetime import datetime, timedelta
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff_iso = cutoff.isoformat()
+    
+    # Using PostgREST lt (less than) operator
+    params = {"timestamp": f"lt.{cutoff_iso}"}
+    try:
+        resp = _client.delete(f"/{table}", params=params)
+        resp.raise_for_status()
+        log.info(f"Deleted records older than {days} days from {table}")
+    except Exception as exc:
+        log.error(f"Failed to delete old records from {table}: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Domain-specific helpers  (real schema)
 # ---------------------------------------------------------------------------
@@ -95,17 +111,23 @@ def fetch_inverters() -> list[dict]:
 
 def fetch_latest_data() -> list[dict]:
     """Most recent snapshot of every inverter from `inverter_latest_data`."""
-    return fetch_all("inverter_latest_data", {"order": "inverter_code.asc"})
+    rows = fetch_all("inverter_latest_data", {"order": "timestamp.desc", "limit": "5000"})
+    unique = {}
+    for r in rows:
+        code = r.get("inverter_code")
+        if code and code not in unique:
+            unique[code] = r
+    return sorted(unique.values(), key=lambda x: x.get("inverter_code", ""))
 
 
-def fetch_metrics(inverter_id: int, limit: int = 100) -> list[dict]:
-    """Recent time-series rows from `inverter_metrics` for one inverter."""
+def fetch_metrics(inverter_code: str, limit: int = 100) -> list[dict]:
+    """Recent time-series rows from `inverter_latest_data` for one inverter."""
     params = {
-        "inverter_id": f"eq.{inverter_id}",
+        "inverter_code": f"eq.{inverter_code}",
         "order": "timestamp.desc",
         "limit": str(limit),
     }
-    return fetch_all("inverter_metrics", params)
+    return fetch_all("inverter_latest_data", params)
 
 
 def fetch_string_metrics(inverter_id: int, limit: int = 50) -> list[dict]:
@@ -171,8 +193,19 @@ def _refresh_cache():
 
 def _background_loop():
     """Daemon thread that refreshes the cache every REFRESH_INTERVAL seconds."""
+    from ml.predict import run_batch_predictions_and_log
     while True:
         _refresh_cache()
+        
+        # ML Training / Prediction Logging
+        with _cache_lock:
+            latest = list(_cache["latest_data"])
+        if latest:
+            run_batch_predictions_and_log(latest)
+            
+        # Delete old data (older than 7 days)
+        delete_old_records("inverter_latest_data", days=7)
+        
         time.sleep(REFRESH_INTERVAL)
 
 

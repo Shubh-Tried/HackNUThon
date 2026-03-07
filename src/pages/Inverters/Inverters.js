@@ -51,9 +51,7 @@ function Inverters() {
 
                 invData = invData.map((inv, index) => {
                     const risk = predictions[index]?.prediction?.risk_score || parseFloat(inv.risk_score) || 0.1;
-                    let status = "Good";
-                    if (risk > 0.7) status = "Bad";
-                    else if (risk > 0.4) status = "Warning";
+                    const status = predictions[index]?.prediction?.status || "Normal";
 
                     const plantName = plantsData.find(
                         (p) => p.plant_id === inv.plant_id || p.id === inv.plant_id
@@ -70,6 +68,7 @@ function Inverters() {
                         voltage_ab: inv.voltage_ab || 230,
                         frequency: inv.frequency || 50,
                         power_factor: inv.power_factor || 0.95,
+                        kwh_total: inv.kwh_total || 0,
                     };
                 });
 
@@ -164,18 +163,36 @@ function Inverters() {
         return "Low Risk";
     };
 
-    // Filtering
+    // Filtering & Deduplication
+    const seenNames = new Set();
     const filtered = inverters.filter((inv) => {
+        if (seenNames.has(inv.name)) return false;
+
         const matchesStatus = filterStatus === "All" || inv.status === filterStatus;
         const matchesSearch = inv.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             inv.plantName.toLowerCase().includes(searchTerm.toLowerCase());
-        return matchesStatus && matchesSearch;
+
+        if (matchesStatus && matchesSearch) {
+            seenNames.add(inv.name);
+            return true;
+        }
+        return false;
     });
 
     // Summary counts
-    const goodCount = inverters.filter((i) => i.status === "Good").length;
-    const warningCount = inverters.filter((i) => i.status === "Warning").length;
-    const badCount = inverters.filter((i) => i.status === "Bad").length;
+    // Summary counts based on the deduplicated 'filtered' or overall unique list
+    const uniqueOverall = [];
+    const uniqueNames = new Set();
+    for (const inv of inverters) {
+        if (!uniqueNames.has(inv.name)) {
+            uniqueNames.add(inv.name);
+            uniqueOverall.push(inv);
+        }
+    }
+
+    const goodCount = uniqueOverall.filter((i) => i.status === "Normal").length;
+    const warningCount = uniqueOverall.filter((i) => i.status === "Warning").length;
+    const badCount = uniqueOverall.filter((i) => i.status === "Critical").length;
 
     const chartOptions = {
         maintainAspectRatio: false,
@@ -196,19 +213,19 @@ function Inverters() {
             <div className="inv-status-bar">
                 <div className="inv-status-pill" onClick={() => setFilterStatus("All")}>
                     <span className="pill-dot" style={{ background: "#007bff" }} />
-                    <span>All ({inverters.length})</span>
+                    <span>All ({uniqueOverall.length})</span>
                 </div>
-                <div className="inv-status-pill" onClick={() => setFilterStatus("Good")}>
+                <div className="inv-status-pill" onClick={() => setFilterStatus("Normal")}>
                     <span className="pill-dot" style={{ background: "#28a745" }} />
-                    <span>Good ({goodCount})</span>
+                    <span>Normal ({goodCount})</span>
                 </div>
                 <div className="inv-status-pill" onClick={() => setFilterStatus("Warning")}>
                     <span className="pill-dot" style={{ background: "#ffc107" }} />
                     <span>Warning ({warningCount})</span>
                 </div>
-                <div className="inv-status-pill" onClick={() => setFilterStatus("Bad")}>
+                <div className="inv-status-pill" onClick={() => setFilterStatus("Critical")}>
                     <span className="pill-dot" style={{ background: "#dc3545" }} />
-                    <span>Bad ({badCount})</span>
+                    <span>Critical ({badCount})</span>
                 </div>
             </div>
 
@@ -233,6 +250,7 @@ function Inverters() {
                             <th>Power (kW)</th>
                             <th>Temp (°C)</th>
                             <th>Voltage (V)</th>
+                            <th>kWh Total</th>
                             <th>Risk</th>
                             <th></th>
                         </tr>
@@ -263,6 +281,7 @@ function Inverters() {
                                         </span>
                                     </td>
                                     <td>{inv.voltage_ab.toFixed(1)}</td>
+                                    <td>{inv.kwh_total != null ? inv.kwh_total.toLocaleString() : "N/A"}</td>
                                     <td>
                                         <span
                                             className="inv-risk-badge"
@@ -340,11 +359,11 @@ function Inverters() {
                                                         </div>
                                                         <div className="inv-stat-box">
                                                             <span className="stat-label">kWh Today</span>
-                                                            <span className="stat-value">{detail?.kwh_today ?? "N/A"}</span>
+                                                            <span className="stat-value">{detail?.kwh_today != null ? `${detail.kwh_today.toLocaleString()} kWh` : "N/A"}</span>
                                                         </div>
                                                         <div className="inv-stat-box">
                                                             <span className="stat-label">kWh Total</span>
-                                                            <span className="stat-value">{detail?.kwh_total ?? "N/A"}</span>
+                                                            <span className="stat-value">{detail?.kwh_total != null ? `${detail.kwh_total.toLocaleString()} kWh` : "N/A"}</span>
                                                         </div>
                                                         <div className="inv-stat-box">
                                                             <span className="stat-label">Operating State</span>
@@ -387,13 +406,13 @@ function Inverters() {
                                                         <div className="inv-detail-charts">
                                                             <div className="inv-mini-chart">
                                                                 <h4>7-Day Voltage</h4>
-                                                                <div style={{ position: "relative", height: "140px", width: "100%" }}>
+                                                                <div style={{ position: "relative", height: "140px", width: "100%", display: "block" }}>
                                                                     <Line
                                                                         data={{
-                                                                            labels: metrics.map((m) => new Date(m.timestamp).toLocaleDateString()),
+                                                                            labels: metrics.length ? metrics.map((m) => new Date(m.timestamp).toLocaleDateString()) : ["No Data"],
                                                                             datasets: [{
                                                                                 label: "Voltage (V)",
-                                                                                data: metrics.map((m) => m.voltage_ab),
+                                                                                data: metrics.length ? metrics.map((m) => m.voltage_ab) : [0],
                                                                                 borderColor: "#007bff",
                                                                                 backgroundColor: "rgba(0,123,255,0.08)",
                                                                                 fill: true,
@@ -406,13 +425,13 @@ function Inverters() {
                                                             </div>
                                                             <div className="inv-mini-chart">
                                                                 <h4>7-Day Temperature</h4>
-                                                                <div style={{ position: "relative", height: "140px", width: "100%" }}>
+                                                                <div style={{ position: "relative", height: "140px", width: "100%", display: "block" }}>
                                                                     <Line
                                                                         data={{
-                                                                            labels: metrics.map((m) => new Date(m.timestamp).toLocaleDateString()),
+                                                                            labels: metrics.length ? metrics.map((m) => new Date(m.timestamp).toLocaleDateString()) : ["No Data"],
                                                                             datasets: [{
                                                                                 label: "Temp (°C)",
-                                                                                data: metrics.map((m) => m.temperature),
+                                                                                data: metrics.length ? metrics.map((m) => m.temperature) : [0],
                                                                                 borderColor: "#ff5733",
                                                                                 backgroundColor: "rgba(255,87,51,0.08)",
                                                                                 fill: true,
@@ -425,13 +444,13 @@ function Inverters() {
                                                             </div>
                                                             <div className="inv-mini-chart">
                                                                 <h4>7-Day Power</h4>
-                                                                <div style={{ position: "relative", height: "140px", width: "100%" }}>
+                                                                <div style={{ position: "relative", height: "140px", width: "100%", display: "block" }}>
                                                                     <Line
                                                                         data={{
-                                                                            labels: metrics.map((m) => new Date(m.timestamp).toLocaleDateString()),
+                                                                            labels: metrics.length ? metrics.map((m) => new Date(m.timestamp).toLocaleDateString()) : ["No Data"],
                                                                             datasets: [{
                                                                                 label: "Power (kW)",
-                                                                                data: metrics.map((m) => m.power),
+                                                                                data: metrics.length ? metrics.map((m) => m.power) : [0],
                                                                                 borderColor: "#28a745",
                                                                                 backgroundColor: "rgba(40,167,69,0.08)",
                                                                                 fill: true,

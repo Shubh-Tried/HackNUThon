@@ -176,6 +176,33 @@ def predict_inverter(data: dict) -> dict:
     else:
         return _predict_heuristic(data, inv_id)
 
+def run_batch_predictions_and_log(latest_data: list[dict]):
+    """Run `predict_inverter` on a batch of latest data and print the results."""
+    print(f"\n--- [ML] Running Batch Predictions ({len(latest_data)} inverters) ---")
+    for inv in latest_data:
+        try:
+            # Map raw fields to what predict_inverter expects if necessary
+            input_data = {
+                "inverter_id": inv.get("id"),
+                "power": inv.get("power", 0),
+                "pv_power": inv.get("pv_power", 0),
+                "temperature": inv.get("temperature", 0),
+                "frequency": inv.get("frequency", 50.0),
+                "voltage_ab": inv.get("voltage_ab", 230),
+                "voltage_bc": inv.get("voltage_bc", 230),
+                "voltage_ca": inv.get("voltage_ca", 230),
+                "power_factor": inv.get("power_factor", 1.0),
+                "op_state": inv.get("op_state", 1),
+                "kwh_today": inv.get("kwh_today", 0),
+                "kwh_total": inv.get("kwh_total", 0),
+            }
+            res = predict_inverter(input_data)
+            code = inv.get("inverter_code", f"ID:{res['inverter_id']}")
+            print(f"[ML] Inverter {code} | Risk: {res['risk_score']:.3f} | Status: {res['status']} | Features: {', '.join(res['top_features'])}")
+        except Exception as e:
+            print(f"[ML] Error predicting for inverter {inv.get('inverter_code', 'unknown')}: {e}")
+    print("------------------------------------------------------------------\n")
+
 
 def _predict_with_models(data: dict, inv_id) -> dict:
     """Run the full ML pipeline: features → IsolationForest → XGBoost."""

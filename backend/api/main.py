@@ -65,6 +65,15 @@ def get_dashboard_stats():
     import datetime
 
     cached = get_cached_latest()
+    
+    # Deduplicate cached inverters by inverter_code
+    unique_inverters = []
+    seen_codes = set()
+    for inv in cached:
+        code = inv.get("inverter_code")
+        if code and code not in seen_codes:
+            seen_codes.add(code)
+            unique_inverters.append(inv)
 
     # --- 1. Inverter Health Overview (pie chart) ---
     status_counts = Counter()
@@ -77,7 +86,7 @@ def get_dashboard_stats():
         "Efficiency Loss": [],
     }
 
-    for inv in cached:
+    for inv in unique_inverters:
         # Compute risk via heuristic/ML
         try:
             ml_result = predict_inverter({
@@ -140,21 +149,60 @@ def get_dashboard_stats():
 
     # --- 4. Weekly Power Generation (line chart) ---
     weekly_power = []
-    today = datetime.date.today()
-    for i in range(6, -1, -1):
-        day = today - datetime.timedelta(days=i)
-        label = day.strftime("%a, %b %d")
-        # Sum kwh_today across all inverters for this day's estimate
-        # Since we only have the latest snapshot, use kwh_today evenly
-        total_kwh = sum(float(inv.get("kwh_today", 0) or 0) for inv in cached)
-        weekly_power.append({"label": label, "value": round(total_kwh, 1)})
-
+    
+    # Use real historical data for the weekly power chart
+    from database.supabase_client import fetch_all
+    try:
+        # Fetch up to 5000 recent metrics to cover the past few days across all inverters
+        metric_query = fetch_all("inverter_latest_data", {"order": "timestamp.desc", "limit": "5000"})
+        daily_kwh = {}
+        
+        for r in metric_query:
+            if not r.get("timestamp"): continue
+            # Handle possible 'Z' at the end of ISO format
+            ts = r["timestamp"].replace('Z', '+00:00')
+            try:
+                dt = datetime.datetime.fromisoformat(ts)
+            except ValueError:
+                continue
+                
+            day_str = dt.strftime("%Y-%m-%d")
+            inv_id = r.get("inverter_code")
+            if not inv_id: continue
+            
+            kwh = float(r.get("kwh_today", 0) or 0)
+            
+            if day_str not in daily_kwh:
+                daily_kwh[day_str] = {}
+                
+            if inv_id not in daily_kwh[day_str] or kwh > daily_kwh[day_str][inv_id]:
+                daily_kwh[day_str][inv_id] = kwh
+                
+        # Sort days chronologically
+        sorted_days = sorted(daily_kwh.keys())
+        
+        # Take the last 7 available days
+        for day_str in sorted_days[-7:]:
+            dt = datetime.datetime.strptime(day_str, "%Y-%m-%d")
+            label = dt.strftime("%a, %b %d")
+            total_kwh = sum(daily_kwh[day_str].values())
+            weekly_power.append({"label": label, "value": round(total_kwh, 1)})
+            
+    except Exception as e:
+        print(f"Error computing weekly power dynamically: {e}")
+        # Fallback to static if the dynamic calculation fails
+        today = datetime.date.today()
+        for i in range(6, -1, -1):
+            day = today - datetime.timedelta(days=i)
+            label = day.strftime("%a, %b %d")
+            # For fallback, sum kwh_today across unique inverters
+            total_kwh = sum(float(inv.get("kwh_today", 0) or 0) for inv in unique_inverters)
     return {
         "health": health,
         "shutdown_risk": shutdown_risk,
         "feature_dominance": feature_dominance,
         "weekly_power": weekly_power,
-        "total_inverters": len(cached),
+        "total_inverters": len(unique_inverters),
     }
 
 
@@ -177,19 +225,23 @@ def get_inverter_detail(inverter_id: int):
     if not inv:
         raise HTTPException(status_code=404, detail="Inverter not found")
 
-    # Enrich with recent metrics history
-    recent_metrics = fetch_metrics(inverter_id, limit=50)
+    inverter_code = inv.get("inverter_code")
+    if not inverter_code:
+        raise HTTPException(status_code=404, detail="Inverter code not found")
+
+    # Enrich with recent metrics history using the true inverter_code
+    recent_metrics = fetch_metrics(inverter_code, limit=50)
 
     # Build a risk-feature list from latest readings
     top_features = []
-    if inv.get("temperature", 0) > 60:
+    if (inv.get("temperature") or 0) > 60:
         top_features.append("High temperature")
-    if inv.get("power_factor", 1.0) < 0.85:
+    if (inv.get("power_factor") or 1.0) < 0.85:
         top_features.append("Low power factor")
-    if inv.get("pv_power", 0) < 1.0:
+    if (inv.get("pv_power") or 0) < 1.0:
         top_features.append("Low PV power")
-    freq = inv.get("frequency", 50.0)
-    if freq and (freq < 49.5 or freq > 50.5):
+    freq = inv.get("frequency") or 50.0
+    if freq < 49.5 or freq > 50.5:
         top_features.append("Frequency deviation")
     if not top_features:
         top_features.append("All parameters nominal")
@@ -204,7 +256,16 @@ def get_inverter_detail(inverter_id: int):
 @app.get("/inverter/{inverter_id}/metrics")
 def get_inverter_metrics(inverter_id: int, limit: int = Query(100, le=500)):
     """Time-series telemetry from `inverter_metrics`."""
-    rows = fetch_metrics(inverter_id, limit=limit)
+    cached = get_cached_latest()
+    inv = next((r for r in cached if r.get("id") == inverter_id), None)
+    if not inv:
+        inv = fetch_one("inverter_latest_data", "id", inverter_id)
+    
+    inverter_code = inv.get("inverter_code")
+    if not inverter_code:
+        raise HTTPException(status_code=404, detail="Inverter code not found")
+
+    rows = fetch_metrics(inverter_code, limit=limit)
     if not rows:
         raise HTTPException(status_code=404, detail="No metrics found for this inverter")
     return rows
@@ -213,7 +274,19 @@ def get_inverter_metrics(inverter_id: int, limit: int = Query(100, le=500)):
 @app.get("/inverter/{inverter_id}/strings")
 def get_string_metrics(inverter_id: int, limit: int = Query(50, le=200)):
     """String-level current readings from `string_metrics`."""
-    rows = fetch_string_metrics(inverter_id, limit=limit)
+    cached = get_cached_latest()
+    inv = next((r for r in cached if r.get("id") == inverter_id), None)
+    if not inv:
+        inv = fetch_one("inverter_latest_data", "id", inverter_id)
+        
+    true_inv_id = inverter_id
+    if inv and inv.get("inverter_code"):
+        cached_invs = get_cached_inverters()
+        match = next((r for r in cached_invs if r.get("inverter_code") == inv.get("inverter_code")), None)
+        if match and "inverter_id" in match:
+            true_inv_id = match["inverter_id"]
+            
+    rows = fetch_string_metrics(true_inv_id, limit=limit)
     return rows
 
 

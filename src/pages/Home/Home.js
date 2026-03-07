@@ -51,10 +51,7 @@ function Home() {
 
         invData = invData.map((inv, index) => {
           const risk = predictions[index]?.prediction?.risk_score || parseFloat(inv.risk_score) || 0.1;
-          let status = predictions[index]?.prediction?.status || "Normal";
-          if (risk > 0.7) status = "Bad";
-          else if (risk > 0.4) status = "Warning";
-          else status = "Good";
+          const status = predictions[index]?.prediction?.status || "Normal";
 
           return {
             ...inv,
@@ -62,6 +59,7 @@ function Home() {
             powerVal: (inv.power || inv.pv_power || 0).toFixed(1) + "kW",
             voltageVal: (inv.voltage_ab || 230).toFixed(1) + "V",
             tempVal: (inv.temperature || 35).toFixed(1) + "°C",
+            kwhTotalVal: (inv.kwh_total || 0).toLocaleString() + " kWh",
             gridStatus: status,
             risk_score: risk,
             plant_id: inv.plant_id || plantsData[0].plant_id || 1,
@@ -162,18 +160,40 @@ function Home() {
   };
 
   // Grouping and sorting
-  const groupedInverters = plants.map((plant) => ({
-    ...plant,
-    inverters: inverters
-      .filter((inv) => inv.plant_id === plant.plant_id || inv.plant_id === plant.id)
-      .sort((a, b) => b.risk_score - a.risk_score),
-  })).filter(p => p.inverters.length > 0);
+  const groupedInverters = plants.map((plant) => {
+    const plantInverters = inverters.filter((inv) => inv.plant_id === plant.plant_id || inv.plant_id === plant.id);
+
+    // Deduplicate by inverter name
+    const uniqueInverters = [];
+    const seenNames = new Set();
+
+    for (const inv of plantInverters) {
+      if (!seenNames.has(inv.name)) {
+        seenNames.add(inv.name);
+        uniqueInverters.push(inv);
+      }
+    }
+
+    return {
+      ...plant,
+      inverters: uniqueInverters.sort((a, b) => b.risk_score - a.risk_score),
+    };
+  }).filter(p => p.inverters.length > 0);
 
   // Summary stats
-  const totalInverters = inverters.length;
-  const activeInvs = inverters.filter((i) => i.gridStatus !== "Bad").length;
-  const atRisk = inverters.filter((i) => i.gridStatus !== "Good").length;
-  const totalPower = inverters.reduce((acc, inv) => acc + (inv.power || 0), 0);
+  const uniqueOverall = [];
+  const uniqueNames = new Set();
+  for (const inv of inverters) {
+    if (!uniqueNames.has(inv.name)) {
+      uniqueNames.add(inv.name);
+      uniqueOverall.push(inv);
+    }
+  }
+
+  const totalInverters = uniqueOverall.length;
+  const activeInvs = uniqueOverall.filter((i) => i.gridStatus !== "Critical").length;
+  const atRisk = uniqueOverall.filter((i) => i.gridStatus !== "Normal").length;
+  const totalPower = uniqueOverall.reduce((acc, inv) => acc + (inv.power || 0), 0);
 
   return (
     <div className="home">
@@ -217,8 +237,9 @@ function Home() {
                   <h3>{inv.name}</h3>
                   <p>Power: {inv.powerVal}</p>
                   <p>Temp: {inv.tempVal}</p>
+                  <p>Energy: {inv.kwhTotalVal}</p>
                   <p style={{ color: getStatusColor(inv.gridStatus), fontWeight: 'bold' }}>
-                    Status: {inv.gridStatus} ({(inv.risk_score * 100).toFixed(1)}%)
+                    Status: {inv.gridStatus === "Critical" ? "Bad" : inv.gridStatus} ({(inv.risk_score * 100).toFixed(1)}%)
                   </p>
                 </div>
               ))}
@@ -258,14 +279,16 @@ function Home() {
 
           <div className="graph-container">
             <div className="graph-card">
-              <div style={{ position: "relative", height: '200px', width: '100%' }}>
+              <div style={{ position: "relative", height: '200px', width: '100%', display: "block" }}>
                 <Line
                   data={{
-                    labels: currentMetrics.map(m => new Date(m.timestamp).toLocaleDateString()),
+                    labels: currentMetrics.length ? currentMetrics.map(m => new Date(m.timestamp).toLocaleDateString()) : ["No Data"],
                     datasets: [{
                       label: "Voltage (V)",
-                      data: currentMetrics.map(m => m.voltage_ab),
+                      data: currentMetrics.length ? currentMetrics.map(m => m.voltage_ab) : [0],
                       borderColor: "#007bff",
+                      backgroundColor: "rgba(0,123,255,0.08)",
+                      fill: true,
                       tension: 0.3
                     }]
                   }}
@@ -276,14 +299,16 @@ function Home() {
             </div>
 
             <div className="graph-card">
-              <div style={{ position: "relative", height: '200px', width: '100%' }}>
+              <div style={{ position: "relative", height: '200px', width: '100%', display: "block" }}>
                 <Line
                   data={{
-                    labels: currentMetrics.map(m => new Date(m.timestamp).toLocaleDateString()),
+                    labels: currentMetrics.length ? currentMetrics.map(m => new Date(m.timestamp).toLocaleDateString()) : ["No Data"],
                     datasets: [{
                       label: "Temp (°C)",
-                      data: currentMetrics.map(m => m.temperature),
+                      data: currentMetrics.length ? currentMetrics.map(m => m.temperature) : [0],
                       borderColor: "#ff5733",
+                      backgroundColor: "rgba(255,87,51,0.08)",
+                      fill: true,
                       tension: 0.3
                     }]
                   }}
@@ -294,14 +319,16 @@ function Home() {
             </div>
 
             <div className="graph-card">
-              <div style={{ position: "relative", height: '200px', width: '100%' }}>
+              <div style={{ position: "relative", height: '200px', width: '100%', display: "block" }}>
                 <Line
                   data={{
-                    labels: currentMetrics.map(m => new Date(m.timestamp).toLocaleDateString()),
+                    labels: currentMetrics.length ? currentMetrics.map(m => new Date(m.timestamp).toLocaleDateString()) : ["No Data"],
                     datasets: [{
                       label: "Power (kW)",
-                      data: currentMetrics.map(m => m.power),
+                      data: currentMetrics.length ? currentMetrics.map(m => m.power) : [0],
                       borderColor: "#28a745",
+                      backgroundColor: "rgba(40,167,69,0.08)",
+                      fill: true,
                       tension: 0.3
                     }]
                   }}
